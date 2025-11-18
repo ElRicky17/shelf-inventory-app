@@ -7,6 +7,8 @@ import { shareAsync } from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
+  Dimensions,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
@@ -21,6 +23,8 @@ import {
 } from 'react-native';
 import * as XLSX from 'xlsx';
 
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 interface ExcelProduct {
   tienda: string;
   departamento: string;
@@ -33,6 +37,8 @@ interface ExcelProduct {
   marca: string;
   proveedor: string;
   cant_existencia: number;
+  'U.M.'?: string;
+  precio_unitario?: number;
 }
 
 interface Product {
@@ -44,6 +50,8 @@ interface Product {
   proveedor: string;
   quantity: number;
   cantExistencia: number;
+  unidadMedida: string;
+  precioUnitario: number;
 }
 
 const STORAGE_KEYS = {
@@ -72,6 +80,7 @@ export default function SuplirProductos() {
   
   const isProcessingScanRef = useRef(false);
   const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modalScaleAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadPersistedData();
@@ -82,6 +91,39 @@ export default function SuplirProductos() {
       saveProductsToStorage(products);
     }
   }, [products, isLoadingData]);
+
+  useEffect(() => {
+    if (showProductModal) {
+      Animated.spring(modalScaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      modalScaleAnim.setValue(0);
+    }
+  }, [showProductModal]);
+
+  // Función para normalizar la unidad de medida
+  const normalizeUnit = (unit: string | undefined): string => {
+    if (!unit) return 'UND';
+    const normalized = unit.trim().toUpperCase();
+    if (normalized === 'UND' || normalized === 'UNIDAD' || normalized === 'UNIDADES') {
+      return 'UND';
+    }
+    return normalized;
+  };
+
+  // Función para formatear precio en pesos colombianos
+  const formatPrice = (price: number): string => {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(price);
+  };
 
   const loadExcelFromUri = async (uri: string) => {
     try {
@@ -117,7 +159,7 @@ export default function SuplirProductos() {
       if (excelLoaded === 'true' && savedUri) {
         const data = await loadExcelFromUri(savedUri);
         if (data) {
-          console.log(data)
+          //console.log(data)
           setExcelData(data);
           setExcelFileUri(savedUri);
           console.log('✅ Excel cargado desde archivo:', data.length, 'productos');
@@ -353,7 +395,7 @@ export default function SuplirProductos() {
       return;
     }
 
-    const quantity = parseInt(quantityInput);
+    const quantity = parseFloat(quantityInput);
 
     if (isNaN(quantity) || quantity <= 0) {
       Alert.alert('Error', 'Ingresa una cantidad válida');
@@ -368,6 +410,9 @@ export default function SuplirProductos() {
       return;
     }
 
+    const unidadMedida = normalizeUnit(selectedProduct['U.M.']);
+    const precioUnitario = selectedProduct.precio_unitario || 0;
+
     const newProduct: Product = {
       id: Date.now().toString(),
       codigo: selectedProduct.codigo,
@@ -377,6 +422,8 @@ export default function SuplirProductos() {
       proveedor: selectedProduct.proveedor,
       quantity: quantity,
       cantExistencia: selectedProduct.cant_existencia,
+      unidadMedida: unidadMedida,
+      precioUnitario: precioUnitario,
     };
 
     setProducts([...products, newProduct]);
@@ -398,11 +445,12 @@ export default function SuplirProductos() {
     setProducts(
       products.map((p) => {
         if (p.id === id) {
-          if (p.quantity + 1 > p.cantExistencia) {
+          const newQuantity = p.quantity + (p.unidadMedida === 'UND' ? 1 : 0.1);
+          if (newQuantity > p.cantExistencia) {
             Alert.alert('Error', `Existencia máxima: ${p.cantExistencia}`);
             return p;
           }
-          return { ...p, quantity: p.quantity + 1 };
+          return { ...p, quantity: parseFloat(newQuantity.toFixed(2)) };
         }
         return p;
       })
@@ -411,19 +459,22 @@ export default function SuplirProductos() {
 
   const handleDecreaseQuantity = (id: string) => {
     setProducts(
-      products.map((p) =>
-        p.id === id && p.quantity > 1 ? { ...p, quantity: p.quantity - 1 } : p
-      )
+      products.map((p) => {
+        if (p.id === id) {
+          const decrement = p.unidadMedida === 'UND' ? 1 : 0.1;
+          const newQuantity = p.quantity - decrement;
+          if (newQuantity < decrement) return p;
+          return { ...p, quantity: parseFloat(newQuantity.toFixed(2)) };
+        }
+        return p;
+      })
     );
   };
 
   const filteredProducts = products.filter((product) => {
     const name = (product.name || "").toString().toLowerCase();
     const query = searchQuery.toLowerCase();
-
-    return (
-        name.includes(query) 
-    );
+    return name.includes(query);
   });
 
   const getDuplicateProducts = () => {
@@ -487,6 +538,8 @@ export default function SuplirProductos() {
       const currentDate = new Date().toLocaleDateString('es-CO');
       const currentTime = new Date().toLocaleTimeString('es-CO');
 
+      const totalValue = products.reduce((sum, p) => sum + (p.quantity * p.precioUnitario), 0);
+
       const htmlContent = `
         <html>
           <head>
@@ -500,11 +553,12 @@ export default function SuplirProductos() {
               table { width: 100%; border-collapse: collapse; margin-top: 15px; page-break-inside: auto; }
               thead { display: table-header-group; }
               tr { page-break-inside: avoid; page-break-after: auto; }
-              th { background-color: #6C5CE7; color: white; padding: 8px 6px; text-align: left; font-weight: bold; font-size: 11px; }
-              td { padding: 6px; border-bottom: 1px solid #ECF0F1; font-size: 10px; }
+              th { background-color: #6C5CE7; color: white; padding: 8px 6px; text-align: left; font-weight: bold; font-size: 10px; }
+              td { padding: 6px; border-bottom: 1px solid #ECF0F1; font-size: 9px; }
               tr:nth-child(even) { background-color: #F8F9FA; }
               .total { margin-top: 15px; text-align: right; font-size: 13px; font-weight: bold; color: #6C5CE7; page-break-inside: avoid; }
               .footer { margin-top: 30px; text-align: center; color: #95A5A6; font-size: 9px; page-break-inside: avoid; }
+              .text-right { text-align: right; }
             </style>
           </head>
           <body>
@@ -514,11 +568,13 @@ export default function SuplirProductos() {
             <table>
               <thead>
                 <tr>
-                  <th style="width: 12%;">Código</th>
-                  <th style="width: 15%;">EAN</th>
-                  <th style="width: 35%;">Descripción</th>
-                  <th style="width: 18%;">Marca</th>
-                  <th style="width: 12%;">Cantidad</th>
+                  <th style="width: 10%;">Código</th>
+                  <th style="width: 12%;">EAN</th>
+                  <th style="width: 28%;">Descripción</th>
+                  <th style="width: 15%;">Marca</th>
+                  <th style="width: 10%;">Cantidad</th>
+                  <th style="width: 12%;">P. Unitario</th>
+                  <th style="width: 13%;">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
@@ -528,13 +584,15 @@ export default function SuplirProductos() {
                     <td>${product.ean}</td>
                     <td>${product.name}</td>
                     <td>${product.marca}</td>
-                    <td>${product.quantity}</td>
+                    <td>${product.quantity} ${product.unidadMedida}</td>
+                    <td class="text-right">${formatPrice(product.precioUnitario)}</td>
+                    <td class="text-right">${formatPrice(product.quantity * product.precioUnitario)}</td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
             <div class="total">
-              Total de productos: ${products.length} | Total de unidades: ${products.reduce((sum, p) => sum + p.quantity, 0)}
+              Total de productos: ${products.length} | Valor total: ${formatPrice(totalValue)}
             </div>
             <div class="footer"><p>Generado por Tiendi App</p></div>
           </body>
@@ -776,6 +834,26 @@ export default function SuplirProductos() {
                         <Text style={styles.productBrand}>
                           {item.marca}
                         </Text>
+                        
+                        {/* Información de precio y unidad */}
+                        <View style={styles.priceUnitRow}>
+                          <View style={styles.priceContainer}>
+                            <Ionicons name="pricetag" size={14} color="#6C5CE7" />
+                            <Text style={styles.priceText}>{formatPrice(item.precioUnitario)}</Text>
+                          </View>
+                          <View style={styles.unitBadge}>
+                            <Text style={styles.unitText}>{item.unidadMedida}</Text>
+                          </View>
+                        </View>
+
+                        {/* Subtotal */}
+                        <View style={styles.subtotalContainer}>
+                          <Text style={styles.subtotalLabel}>Subtotal:</Text>
+                          <Text style={styles.subtotalValue}>
+                            {formatPrice(item.quantity * item.precioUnitario)}
+                          </Text>
+                        </View>
+
                         <View style={styles.quantityRow}>
                           <TouchableOpacity
                             style={styles.quantityBtn}
@@ -783,7 +861,10 @@ export default function SuplirProductos() {
                           >
                             <Ionicons name="remove" size={18} color="#6C5CE7" />
                           </TouchableOpacity>
-                          <Text style={styles.quantityText}>{item.quantity}</Text>
+                          <View style={styles.quantityDisplayContainer}>
+                            <Text style={styles.quantityText}>{item.quantity}</Text>
+                            <Text style={styles.quantityUnit}>{item.unidadMedida}</Text>
+                          </View>
                           <TouchableOpacity
                             style={styles.quantityBtn}
                             onPress={() => handleIncreaseQuantity(item.id)}
@@ -816,6 +897,7 @@ export default function SuplirProductos() {
         visible={isLoadingExcel}
         animationType="fade"
         transparent={true}
+        onRequestClose={() => {}}
       >
         <View style={styles.loadingModalOverlay}>
           <View style={styles.loadingModalContent}>
@@ -839,17 +921,21 @@ export default function SuplirProductos() {
         transparent={true}
         onRequestClose={() => setShowEmployeeModal(false)}
       >
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalOverlay}
-        >
+        <View style={styles.modalOverlay}>
           <TouchableOpacity 
             activeOpacity={1} 
-            style={styles.modalOverlay}
-            onPress={Keyboard.dismiss}
+            style={{flex:1}}
+            onPress={() => {
+              Keyboard.dismiss();
+              setShowEmployeeModal(false);
+            }}
           >
-            <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-              <View style={styles.employeeModalContent}>
+            <KeyboardAvoidingView 
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{flex:1, justifyContent: 'center'}}
+            >
+              <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+                <View style={styles.employeeModalContent}>
                 <View style={styles.employeeModalHeader}>
                   <Ionicons name="person-circle" size={50} color="#6C5CE7" />
                   <Text style={styles.employeeModalTitle}>¿Quién realiza el pedido?</Text>
@@ -886,9 +972,10 @@ export default function SuplirProductos() {
                   </TouchableOpacity>
                 </View>
               </View>
-            </TouchableOpacity>
+              </TouchableOpacity>
+            </KeyboardAvoidingView>
           </TouchableOpacity>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* Modal información de formato */}
@@ -898,13 +985,18 @@ export default function SuplirProductos() {
         transparent={true}
         onRequestClose={() => setShowFormatInfo(false)}
       >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowFormatInfo(false)}
-        >
-          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.formatModalContent}>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity 
+            style={{flex:1}}
+            activeOpacity={1}
+            onPress={() => setShowFormatInfo(false)}
+          >
+            <KeyboardAvoidingView 
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{flex:1, justifyContent: 'center'}}
+            >
+              <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+                <View style={styles.formatModalContent}>
               <View style={styles.formatModalHeader}>
                 <Ionicons name="information-circle" size={40} color="#6C5CE7" />
                 <Text style={styles.formatModalTitle}>Formato del Excel</Text>
@@ -918,7 +1010,9 @@ export default function SuplirProductos() {
                 <Text style={styles.formatItem}>• <Text style={styles.formatBold}>descripcion</Text> (texto)</Text>
                 <Text style={styles.formatItem}>• <Text style={styles.formatBold}>marca</Text> (texto)</Text>
                 <Text style={styles.formatItem}>• <Text style={styles.formatBold}>proveedor</Text> (texto)</Text>
-                <Text style={styles.formatItem}>• <Text style={styles.formatBold}>cant_existencia</Text> (texto/número)</Text>
+                <Text style={styles.formatItem}>• <Text style={styles.formatBold}>cant_existencia</Text> (número)</Text>
+                <Text style={styles.formatItem}>• <Text style={styles.formatBold}>U.M.</Text> (texto: UND, KG, GR, etc.)</Text>
+                <Text style={styles.formatItem}>• <Text style={styles.formatBold}>precio_unitario</Text> (número)</Text>
               </View>
               <View style={styles.formatNote}>
                 <Ionicons name="warning" size={16} color="#FF9800" />
@@ -933,127 +1027,164 @@ export default function SuplirProductos() {
                 <Text style={styles.formatModalButtonText}>Entendido</Text>
               </TouchableOpacity>
             </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Modal del escáner */}
-      <Modal
-        visible={showScanner}
-        animationType="slide"
-        onRequestClose={handleCloseScanner}
-      >
-        <View style={styles.scannerContainer}>
-          <CameraView
-            style={styles.camera}
-            facing="back"
-            barcodeScannerSettings={{
-              barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'upc_a', 'upc_e'],
-            }}
-            onBarcodeScanned={isProcessingScanRef.current ? undefined : handleBarcodeScanned}
-          >
-            <View style={styles.scannerOverlay}>
-              <Text style={styles.scannerText}>Apunta al código de barras</Text>
-              <View style={styles.scannerFrame} />
-            </View>
-          </CameraView>
-
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={handleCloseScanner}
-          >
-            <Ionicons name="close-circle" size={50} color="#FFFFFF" />
+              </TouchableOpacity>
+            </KeyboardAvoidingView>
           </TouchableOpacity>
         </View>
       </Modal>
 
-    {/* Modal de producto encontrado */}
-    <Modal
-      visible={showProductModal}
-      animationType="fade"
-      transparent={true}
-      onRequestClose={handleCloseProductModal}
+     {/* Modal del escáner */}
+<Modal
+  visible={showScanner}
+  animationType="slide"
+  onRequestClose={handleCloseScanner}
+>
+  <View style={styles.scannerContainer}>
+    <CameraView
+      style={styles.camera}
+      facing="back"
+      barcodeScannerSettings={{
+        barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'upc_a', 'upc_e'],
+      }}
+      onBarcodeScanned={isProcessingScanRef.current ? undefined : handleBarcodeScanned}
+    />
+    
+    {/* Overlay con posicionamiento absoluto - FUERA de CameraView */}
+    <View style={styles.scannerOverlay}>
+      <Text style={styles.scannerText}>Apunta al código de barras</Text>
+      <View style={styles.scannerFrame} />
+    </View>
+
+    <TouchableOpacity
+      style={styles.closeButton}
+      onPress={handleCloseScanner}
     >
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.modalOverlay}
+      <Ionicons name="close-circle" size={50} color="#FFFFFF" />
+    </TouchableOpacity>
+  </View>
+</Modal>
+
+{/* MODAL DE PRODUCTO */}
+
+<Modal
+  visible={showProductModal}
+  animationType="slide"
+  transparent={true}
+  onRequestClose={handleCloseProductModal}
+>
+  <KeyboardAvoidingView 
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    style={{flex: 1}}
+    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+  >
+    <View style={styles.modalOverlay}>
+      <TouchableOpacity 
+        style={{flex:1}}
+        activeOpacity={1}
+        onPress={handleCloseProductModal}
       >
-        <TouchableOpacity 
-          activeOpacity={1} 
-          style={styles.modalOverlay}
-          onPress={Keyboard.dismiss}
-        >
+        <View style={{flex:1, justifyContent: 'flex-end'}}>
           <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-            <ScrollView 
-              contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingVertical: 20 }}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.productModalContent}>
-                <View style={styles.productModalHeader}>
-                  <Ionicons name="checkmark-circle" size={50} color="#4ECDC4" />
+            <View style={styles.productModalContent}>
+              {/* Header fijo */}
+              <View style={styles.productModalHeader}>
+                <View style={styles.modalHeaderLeft}>
+                  <Ionicons name="checkmark-circle" size={28} color="#4ECDC4" />
                   <Text style={styles.productModalTitle}>Producto Encontrado</Text>
                 </View>
-
-                {selectedProduct && (
-                  <View style={styles.productModalBody}>
-                    <View style={styles.productModalRow}>
-                      <Text style={styles.productModalLabel}>Nombre:</Text>
-                      <Text style={styles.productModalValue}>
-                        {selectedProduct.descripcion}
-                      </Text>
-                    </View>
-                    <View style={styles.productModalRow}>
-                      <Text style={styles.productModalLabel}>Marca:</Text>
-                      <Text style={styles.productModalValue}>{selectedProduct.marca}</Text>
-                    </View>
-                    <View style={styles.productModalRow}>
-                      <Text style={styles.productModalLabel}>Proveedor:</Text>
-                      <Text style={styles.productModalValue}>{selectedProduct.proveedor}</Text>
-                    </View>
-                    <View style={styles.productModalRow}>
-                      <Text style={styles.productModalLabel}>Existencia:</Text>
-                      <Text style={styles.productModalValue}>
-                        {selectedProduct.cant_existencia} unidades
-                      </Text>
-                    </View>
-
-                    <View style={styles.quantityInputGroup}>
-                      <Text style={styles.productModalLabel}>Cantidad Requerida:</Text>
-                      <TextInput
-                        style={styles.quantityInputModal}
-                        placeholder="Ingresa la cantidad"
-                        value={quantityInput}
-                        onChangeText={setQuantityInput}
-                        keyboardType="numeric"
-                        returnKeyType="done"
-                        autoFocus={true}
-                        onSubmitEditing={handleAddProductFromModal}
-                      />
-                    </View>
-                  </View>
-                )}
-
-                <View style={styles.productModalButtons}>
-                  <TouchableOpacity
-                    style={[styles.productModalButton, styles.cancelButton]}
-                    onPress={handleCloseProductModal}
-                  >
-                    <Text style={styles.cancelButtonText}>Cancelar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.productModalButton, styles.confirmButton]}
-                    onPress={handleAddProductFromModal}
-                  >
-                    <Text style={styles.confirmButtonText}>Agregar</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity onPress={handleCloseProductModal} style={styles.closeIconButton}>
+                  <Ionicons name="close" size={24} color="#7F8C8D" />
+                </TouchableOpacity>
               </View>
-            </ScrollView>
+
+              {/* Contenido scrolleable CON BOTONES INCLUIDOS */}
+              <ScrollView 
+                style={styles.modalScrollView}
+                contentContainerStyle={styles.modalScrollContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                bounces={true}
+              >
+                {selectedProduct && (
+                  <>
+                    <View style={styles.productModalBody}>
+                      {/* Nombre del producto */}
+                      <View style={styles.modalField}>
+                        <Text style={styles.modalFieldLabel}>Producto</Text>
+                        <Text style={styles.modalFieldValue}>{selectedProduct.descripcion}</Text>
+                      </View>
+
+                      {/* Marca y Proveedor en fila */}
+                      <View style={styles.modalTwoColumns}>
+                        <View style={[styles.modalField, { flex: 1, marginBottom: 0 }]}>
+                          <Text style={styles.modalFieldLabel}>Marca</Text>
+                          <Text style={styles.modalFieldValueSmall}>{selectedProduct.marca}</Text>
+                        </View>
+                        <View style={[styles.modalField, { flex: 1, marginBottom: 0 }]}>
+                          <Text style={styles.modalFieldLabel}>Proveedor</Text>
+                          <Text style={styles.modalFieldValueSmall}>{selectedProduct.proveedor}</Text>
+                        </View>
+                      </View>
+
+                      {/* Existencia y Precio en fila */}
+                      <View style={styles.modalTwoColumns}>
+                        <View style={[styles.modalField, { flex: 1, marginBottom: 0 }]}>
+                          <Text style={styles.modalFieldLabel}>Existencia</Text>
+                          <Text style={styles.modalFieldValueHighlight}>
+                            {selectedProduct.cant_existencia} {normalizeUnit(selectedProduct['U.M.'])}
+                          </Text>
+                        </View>
+                        <View style={[styles.modalField, { flex: 1, marginBottom: 0 }]}>
+                          <Text style={styles.modalFieldLabel}>Precio Unitario</Text>
+                          <Text style={styles.modalFieldValuePrice}>
+                            {formatPrice(selectedProduct.precio_unitario || 0)}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Input de cantidad */}
+                      <View style={styles.modalField}>
+                        <Text style={styles.modalFieldLabel}>
+                          Cantidad Requerida ({normalizeUnit(selectedProduct['U.M.'])})
+                        </Text>
+                        <TextInput
+                          style={styles.modalQuantityInput}
+                          placeholder={`Ej: 10`}
+                          placeholderTextColor="#95A5A6"
+                          value={quantityInput}
+                          onChangeText={setQuantityInput}
+                          keyboardType="decimal-pad"
+                          returnKeyType="done"
+                          onSubmitEditing={handleAddProductFromModal}
+                        />
+                      </View>
+                    </View>
+
+                    {/* Botones DENTRO del ScrollView */}
+                    <View style={styles.modalFooterInside}>
+                      <TouchableOpacity
+                        style={[styles.modalButton, styles.modalButtonCancel]}
+                        onPress={handleCloseProductModal}
+                      >
+                        <Text style={styles.modalButtonTextCancel}>Cancelar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.modalButton, styles.modalButtonConfirm]}
+                        onPress={handleAddProductFromModal}
+                      >
+                        <Text style={styles.modalButtonTextConfirm}>Agregar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+              </ScrollView>
+            </View>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </KeyboardAvoidingView>
-    </Modal>
+        </View>
+      </TouchableOpacity>
+    </View>
+  </KeyboardAvoidingView>
+</Modal>
     </View>
   );
 }
@@ -1293,7 +1424,53 @@ const styles = StyleSheet.create({
   productBrand: {
     fontSize: 12,
     color: '#95A5A6',
+    marginBottom: 8,
+  },
+  priceUnitRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  priceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  priceText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#6C5CE7',
+  },
+  unitBadge: {
+    backgroundColor: '#F0EFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  unitText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6C5CE7',
+  },
+  subtotalContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    padding: 8,
+    borderRadius: 8,
     marginBottom: 10,
+  },
+  subtotalLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#7F8C8D',
+  },
+  subtotalValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#2C3E50',
   },
   quantityRow: {
     flexDirection: 'row',
@@ -1308,12 +1485,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  quantityDisplayContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    minWidth: 60,
+    justifyContent: 'center',
+  },
   quantityText: {
     fontSize: 16,
     color: '#6C5CE7',
     fontWeight: '700',
-    minWidth: 24,
-    textAlign: 'center',
+  },
+  quantityUnit: {
+    fontSize: 12,
+    color: '#6C5CE7',
+    fontWeight: '600',
   },
   floatingButtonContainer: {
     position: 'absolute',
@@ -1458,18 +1645,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   scannerContainer: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
+  flex: 1,
+  backgroundColor: '#000000',
+  position: 'relative', // Agregado
+},
   camera: {
-    flex: 1,
-  },
-  scannerOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  flex: 1,
+  position: 'absolute', // Agregado
+  top: 0,              // Agregado
+  left: 0,             // Agregado
+  right: 0,            // Agregado
+  bottom: 0,           // Agregado
+},
+scannerOverlay: {
+  ...StyleSheet.absoluteFillObject, // Cambiado
+  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  pointerEvents: 'box-none', // Agregado - permite que los eventos pasen a la cámara
+},
   scannerText: {
     color: '#FFFFFF',
     fontSize: 20,
@@ -1492,93 +1686,150 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    justifyContent: 'flex-end',
+  },
+  modalKeyboardAvoidingView: {
+    width: '100%',
+    maxHeight: SCREEN_HEIGHT * 0.75,
   },
   productModalContent: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    maxWidth: 380,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: Platform.OS === 'android' ? SCREEN_HEIGHT * 0.85 : SCREEN_HEIGHT * 0.75,
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
     elevation: 10,
   },
   productModalHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 18,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    backgroundColor: '#FFFFFF',
+  },
+  modalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
   },
   productModalTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: '#2C3E50',
-    marginTop: 10,
+    flex: 1,
   },
+  closeIconButton: {
+    padding: 4,
+  },
+  modalScrollView: {
+  flexGrow: 1,
+},
+  modalScrollContent: {
+  paddingBottom: 20,
+  flexGrow: 1,
+},
+modalFooterInside: {
+  flexDirection: 'row',
+  gap: 12,
+  paddingHorizontal: 20,
+  paddingTop: 20,
+  paddingBottom: Platform.OS === 'android' ? 40 : 20,
+  borderTopWidth: 1,
+  borderTopColor: '#F0F0F0',
+  backgroundColor: '#FFFFFF',
+},
   productModalBody: {
-    marginBottom: 18,
+    paddingHorizontal: 20,
+    paddingTop: 16,
   },
-  productModalRow: {
-    marginBottom: 10,
+  modalField: {
+    marginBottom: 14,
   },
-  productModalLabel: {
-    fontSize: 13,
+  modalFieldLabel: {
+    fontSize: 12,
     fontWeight: '600',
     color: '#7F8C8D',
-    marginBottom: 3,
+    marginBottom: 5,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  productModalValue: {
+  modalFieldValue: {
     fontSize: 15,
+    fontWeight: '600',
     color: '#2C3E50',
+    lineHeight: 20,
+  },
+  modalFieldValueSmall: {
+    fontSize: 14,
     fontWeight: '500',
+    color: '#2C3E50',
+    lineHeight: 18,
   },
-  quantityInputGroup: {
-    marginTop: 16,
+  modalFieldValueHighlight: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4ECDC4',
   },
-  quantityInputModal: {
+  modalFieldValuePrice: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#6C5CE7',
+  },
+  modalTwoColumns: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+  },
+  modalQuantityInput: {
     backgroundColor: '#F8F9FA',
     borderRadius: 12,
     padding: 14,
-    fontSize: 15,
+    fontSize: 16,
     color: '#2C3E50',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#E0E0E0',
-    marginTop: 6,
+    fontWeight: '600',
   },
-  productModalButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  productModalButton: {
+  modalButton: {
     flex: 1,
-    padding: 14,
+    paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  cancelButton: {
-    backgroundColor: '#ECF0F1',
+  modalButtonCancel: {
+    backgroundColor: '#F0F0F0',
   },
-  cancelButtonText: {
-    color: '#7F8C8D',
+  modalButtonTextCancel: {
     fontSize: 15,
     fontWeight: '700',
+    color: '#7F8C8D',
   },
-  confirmButton: {
+  modalButtonConfirm: {
     backgroundColor: '#4ECDC4',
   },
-  confirmButtonText: {
-    color: '#FFFFFF',
+  modalButtonTextConfirm: {
     fontSize: 15,
     fontWeight: '700',
+    color: '#FFFFFF',
   },
+  
   employeeModalContent: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 24,
-    width: '100%',
+    marginHorizontal: 20,
+    alignSelf: 'center',
+    width: '90%',
     maxWidth: 380,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
@@ -1624,5 +1875,21 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
     alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#ECF0F1',
+  },
+  cancelButtonText: {
+    color: '#7F8C8D',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  confirmButton: {
+    backgroundColor: '#4ECDC4',
+  },
+  confirmButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });
