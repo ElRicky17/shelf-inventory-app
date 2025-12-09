@@ -1,50 +1,65 @@
-# Welcome to your Expo app 👋
+# Tiendi — Inventario para Góndolas (Prototipo)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Tiendi es un prototipo de aplicación móvil (React Native + Expo) diseñado para ayudar a pequeñas tiendas a gestionar inventarios en góndolas y puntos de venta. Esta versión es una prueba de concepto que permite escanear productos, ver información básica y ajustar cantidades antes de integrarlo con un sistema POS completo.
 
-## Get started
+## Objetivo
 
-1. Install dependencies
+- Resolver la gestión rápida de inventario en tienda (registro y ajuste de existencias).
+- Funcionar como MVP para demostrar la viabilidad y ahorrar costos frente a contratar una integración completa con proveedores de POS.
 
-   ```bash
-   npm install
-   ```
+## Características principales (prototipo)
 
-2. Start the app
+- Escaneo / búsqueda de productos.
+- Modal de producto con información (precio, existencia, proveedor, unidad).
+- Ajuste de cantidades y registro local temporal.
+- Interfaz orientada a uso en dispositivos Android (APK de prueba disponible).
 
-   ```bash
-   npx expo start
-   ```
+## Tecnologías
 
-In the output, you'll find options to open the app in a
+- Frontend: React Native + Expo
+- Enrutamiento de app: Expo Router (file-based routing)
+- Lenguaje: TypeScript
+- Estructura de código: carpeta `app/` contiene las pantallas y rutas
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## Estructura del repositorio (relevante)
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- `app/` — código fuente de la aplicación (pantallas, componentes)
+- `assets/` — iconos y recursos estáticos
+- `android/` — configuración nativa y gradle (builds Android)
+- `package.json`, `tsconfig.json`, `eas.json` — configuración de proyecto
 
-## Get a fresh project
+---
 
-When you're ready, run:
+## Instalación y ejecución (desarrollo)
 
-```bash
-npm run reset-project
+1. Clona el repositorio y entra en la carpeta:
+
+```powershell
+git clone <repo_url>
+cd Tiendi
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+2. Instala dependencias:
 
-## Learn more
+```powershell
+npm install
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+3. Inicia el servidor de desarrollo de Expo:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```powershell
+npx expo start
+```
 
-## Join the community
+4. Para probar en Android emulador o dispositivo físico puedes usar las opciones que muestra `expo start` (Dev build / emulator / Expo Go limitado). Para generar un APK de prueba se recomienda usar EAS Build o Android Studio con `gradlew`.
 
-Join our community of developers creating universal apps.
+## Build (APK) — nota rápida
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- Para builds reproducibles en producción usa `eas build --platform android` (recomendado). Requiere configurar `eas.json` y credenciales.
+- Alternativa local: abrir `android/` en Android Studio y construir un APK.
+
+## Consideraciones técnicas importantes
+
+- El modal de producto (`app/(tienda)/(Gondola)/suplir-productos.tsx`) tuvo problemas de comportamiento en builds Android nativos — especialmente con el manejo del teclado y la barra de navegación. Si vas a producir builds, revisa las secciones de UI/Keyboard y prueba en dispositivos reales.
+
+
