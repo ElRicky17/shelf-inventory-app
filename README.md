@@ -1,65 +1,81 @@
-# Tiendi — Inventario para Góndolas (Prototipo)
+# Tiendi — Retail Shelf Inventory (Prototype)
 
-Tiendi es un prototipo de aplicación móvil (React Native + Expo) diseñado para ayudar a pequeñas tiendas a gestionar inventarios en góndolas y puntos de venta. Esta versión es una prueba de concepto que permite escanear productos, ver información básica y ajustar cantidades antes de integrarlo con un sistema POS completo.
-
-## Objetivo
-
-- Resolver la gestión rápida de inventario en tienda (registro y ajuste de existencias).
-- Funcionar como MVP para demostrar la viabilidad y ahorrar costos frente a contratar una integración completa con proveedores de POS.
-
-## Características principales (prototipo)
-
-- Escaneo / búsqueda de productos.
-- Modal de producto con información (precio, existencia, proveedor, unidad).
-- Ajuste de cantidades y registro local temporal.
-- Interfaz orientada a uso en dispositivos Android (APK de prueba disponible).
-
-## Tecnologías
-
-- Frontend: React Native + Expo
-- Enrutamiento de app: Expo Router (file-based routing)
-- Lenguaje: TypeScript
-- Estructura de código: carpeta `app/` contiene las pantallas y rutas
-
-## Estructura del repositorio (relevante)
-
-- `app/` — código fuente de la aplicación (pantallas, componentes)
-- `assets/` — iconos y recursos estáticos
-- `android/` — configuración nativa y gradle (builds Android)
-- `package.json`, `tsconfig.json`, `eas.json` — configuración de proyecto
+Tiendi is a mobile app prototype (React Native + Expo) designed to help small retail stores manage inventory on shelving units and points of sale. This version is a proof of concept that allows store staff to scan products, view basic product information, and adjust stock quantities — before integrating with a full POS system.
 
 ---
 
-## Instalación y ejecución (desarrollo)
+## Goal
 
-1. Clona el repositorio y entra en la carpeta:
+- Solve the problem of fast in-store inventory management (stock tracking and adjustment).
+- Serve as an MVP to demonstrate viability and reduce costs compared to hiring a full POS provider integration.
 
-```powershell
-git clone <repo_url>
-cd Tiendi
+---
+
+## Core Features (Prototype)
+
+- Product scanning / search.
+- Product modal with key details (price, stock, supplier, unit).
+- Quantity adjustment with temporary local storage.
+- Interface optimized for Android devices (test APK available).
+
+---
+
+## Tech Stack
+
+- **Frontend**: React Native + Expo
+- **App Routing**: Expo Router (file-based routing)
+- **Language**: TypeScript
+
+---
+
+## Repository Structure
+
+```
+├── app/          # App source code (screens and routes)
+├── assets/       # Icons and static resources
+├── android/      # Native configuration and Gradle (Android builds)
+├── package.json
+├── tsconfig.json
+└── eas.json      # EAS Build configuration
 ```
 
-2. Instala dependencias:
+---
 
-```powershell
-npm install
+## Installation & Development
+
+1. Clone the repository:
+   ```bash
+   git clone <repo_url>
+   cd Tiendi
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Start the Expo development server:
+   ```bash
+   npx expo start
+   ```
+
+4. To test on an Android emulator or physical device, use the options shown by `expo start` (Dev build / emulator / limited Expo Go). To generate a test APK, use EAS Build or Android Studio with `gradlew`.
+
+---
+
+## Building an APK
+
+**Recommended — EAS Build:**
+```bash
+eas build --platform android
 ```
+Requires configuring `eas.json` and signing credentials.
 
-3. Inicia el servidor de desarrollo de Expo:
+**Alternative — Android Studio:**
+Open the `android/` folder in Android Studio and build the APK directly.
 
-```powershell
-npx expo start
-```
+---
 
-4. Para probar en Android emulador o dispositivo físico puedes usar las opciones que muestra `expo start` (Dev build / emulator / Expo Go limitado). Para generar un APK de prueba se recomienda usar EAS Build o Android Studio con `gradlew`.
+## Important Technical Notes
 
-## Build (APK) — nota rápida
-
-- Para builds reproducibles en producción usa `eas build --platform android` (recomendado). Requiere configurar `eas.json` y credenciales.
-- Alternativa local: abrir `android/` en Android Studio y construir un APK.
-
-## Consideraciones técnicas importantes
-
-- El modal de producto (`app/(tienda)/(Gondola)/suplir-productos.tsx`) tuvo problemas de comportamiento en builds Android nativos — especialmente con el manejo del teclado y la barra de navegación. Si vas a producir builds, revisa las secciones de UI/Keyboard y prueba en dispositivos reales.
-
-
+- The product modal (`app/(tienda)/(Gondola)/suplir-productos.tsx`) had behavioral issues on native Android builds — particularly around keyboard handling and the navigation bar. If you are producing builds for production, review the keyboard/UI behavior and test thoroughly on real devices before releasing.
